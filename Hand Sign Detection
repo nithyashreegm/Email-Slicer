@@ -1,0 +1,255 @@
+import cv2
+import os
+import numpy as np
+import mediapipe as mp
+import matplotlib.pyplot as plt
+
+mp_holistic=mp.solutions.holistic #Holistic model for downloading the model
+mp_drawing=mp.solutions.drawing_utils #Drawing utilities for drawing
+
+def mediapipe_detection(image,model):
+    image=cv2.cvtColor(image,cv2.COLOR_BGR2RGB) #color convertion brg2rgb
+    image.flags.writeable=False #image is no longer writiable
+    results=model.process(image) #make prediction
+    image.flags.writeable=True #image is now writiable
+    image=cv2.cvtColor(image,cv2.COLOR_RGB2BGR) #color convertion rgb2brg
+    return image,results
+
+def draw_landmarks(image,results):
+    mp_drawing.draw_landmarks(image,results.face_landmarks,mp_holistic.FACEMESH_CONTOURS)     #draw face connections so mp_holistic.allconnection are immutable
+    mp_drawing.draw_landmarks(image,results.pose_landmarks,mp_holistic.POSE_CONNECTIONS)      #pose con
+    mp_drawing.draw_landmarks(image,results.left_hand_landmarks,mp_holistic.HAND_CONNECTIONS) #left hand conn
+    mp_drawing.draw_landmarks(image,results.right_hand_landmarks,mp_holistic.HAND_CONNECTIONS)#rigth hand conn
+
+def draw_styled_landmarks(image,results):
+    mp_drawing.draw_landmarks(image,results.face_landmarks,mp_holistic.FACEMESH_CONTOURS,
+                             mp_drawing.DrawingSpec(color=(80,110,10),thickness=1,circle_radius=1),
+                             mp_drawing.DrawingSpec(color=(80,256,121),thickness=1,circle_radius=1))     
+    mp_drawing.draw_landmarks(image,results.pose_landmarks,mp_holistic.POSE_CONNECTIONS,
+                             mp_drawing.DrawingSpec(color=(80,22,10),thickness=1,circle_radius=1),
+                             mp_drawing.DrawingSpec(color=(80,44,121),thickness=1,circle_radius=1))      
+    mp_drawing.draw_landmarks(image,results.left_hand_landmarks,mp_holistic.HAND_CONNECTIONS,
+                             mp_drawing.DrawingSpec(color=(121,22,76),thickness=1,circle_radius=1),
+                             mp_drawing.DrawingSpec(color=(121,44,250),thickness=1,circle_radius=1)) 
+    mp_drawing.draw_landmarks(image,results.right_hand_landmarks,mp_holistic.HAND_CONNECTIONS,
+                             mp_drawing.DrawingSpec(color=(121,22,76),thickness=1,circle_radius=1),
+                             mp_drawing.DrawingSpec(color=(121,44,250),thickness=1,circle_radius=1))
+
+cap=cv2.VideoCapture(0)
+# access mediapipe model ;min detection confid is initial detection and min tracking confidence if tracking  
+with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
+    while cap.isOpened():
+        # read fead
+        ret,frame=cap.read()
+        frame=cv2.resize(frame,(900,500))
+        #make detections and results are in mediapipe
+        image,results=mediapipe_detection(frame,holistic)
+        print(results)
+        #draw landmarks
+        draw_styled_landmarks(image,results)
+        #show to the screen
+        cv2.imshow('video cam',image)
+        #beake gracefully
+        if cv2.waitKey(10) & 0xFF == ord('q'):
+            break
+    cap.release()
+    cv2.destroyAllWindows()
+
+frame.shape
+pose1 = []
+for res in results.face_landmarks.landmark:
+    test = np.array([res.x, res.y, res.z])
+    pose1.append(test)
+
+np.shape(np.array(pose1))
+
+def exract_keypoints(results):
+    pose=np.array([[res.x,res.y,res.z,res.visibility] for res in results.pose_landmarks.landmark]).flatten() if results.pose_landmarks else np.zeros(33*4)
+    lh=np.array([[res.x,res.y,res.z] for res in results.left_hand_landmarks.landmark]).flatten() if results.left_hand_landmarks else np.zeros(21*3)
+    rh=np.array([[res.x,res.y,res.z] for res in results.right_hand_landmarks.landmark]).flatten() if results.right_hand_landmarks else np.zeros(21*3)
+    face=np.array([[res.x,res.y,res.z] for res in results.face_landmarks.landmark]).flatten() if results.face_landmarks else np.zeros(468*3)
+    return np.concatenate([pose,face,lh,rh])
+
+result=exract_keypoints(results)
+
+plt.imshow(cv2.cvtColor(frame,cv2.COLOR_BGR2RGB))
+
+#path for exported data
+DATA_PATH=os.path.join('MP_Data')
+
+#actions that we try to detect
+actions=np.array(['hello','thanks','iloveyou'])
+
+#thirty video worth of data
+no_sequences=30
+#videos are going to be 30 frames in length
+sequence_length=30
+DATA_PATH
+
+for action in actions:
+    for sequence in range(no_sequences):
+        try:
+            os.makedirs(os.path.join(DATA_PATH,action,str(sequence)))
+        except:
+            pass
+
+cap=cv2.VideoCapture(0)
+# access mediapipe model ;min detection confid is initial detection and min tracking confidence if tracking  
+with mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5) as holistic:
+    #loop through sequence and actions
+    for action in actions:
+        for sequence in range(no_sequences):
+            for frame_num in range(sequence_length):
+                # read fead
+                ret,frame=cap.read()
+                frame=cv2.resize(frame,(900,500))
+                #make detections and results are in mediapipe
+                image,results=mediapipe_detection(frame,holistic)
+                print(results)
+                #draw landmarks
+                draw_styled_landmarks(image,results)
+                
+                #apply collection wait logic
+                if frame_num==0:
+                    cv2.putText(image,"Starting collection",(120,200),
+                               cv2.FONT_HERSHEY_SIMPLEX,1,(0,255,0),4,cv2.LINE_AA)
+                
+                    cv2.putText(image,"Collecting Frames for {} video no {}".format(action,sequence),(15,12),
+                               cv2.FONT_HERSHEY_SIMPLEX,0.5,(0,255,0),1,    cv2.LINE_AA)
+                    
+                    cv2.waitKey(2000)
+                else:
+                     cv2.putText(image,"Collecting Frames for {} video no {}".format(action,sequence),(15,12),
+                               cv2.FONT_HERSHEY_SIMPLEX,0.5,(0,255,0),1,cv2.LINE_AA) 
+                     
+                keypoints=exract_keypoints(results)
+                npy_path=os.path.join(DATA_PATH,action,str(sequence),str(frame_num))
+                np.save(npy_path,keypoints)
+                #show to the screen
+                cv2.imshow('video cam',image)
+                #beake gracefully
+                if cv2.waitKey(10) & 0xFF == ord('q'):
+                    break
+    cap.release()
+    cv2.destroyAllWindows()
+
+cap.release()
+cv2.destroyAllWindows()
+
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.utils import to_categorical
+lable_map={}
+i=0
+for action in actions: 
+    lable_map.update({action:i})
+    i+=1
+lable_map
+
+sequences, labels = [], []
+for action in actions:
+    for sequence in range(no_sequences):
+        window = []
+        for frame_num in range(sequence_length):
+            res = np.load(os.path.join(DATA_PATH, action, str(sequence), "{}.npy".format(frame_num)))
+            window.append(res)
+        sequences.append(window)
+        labels.append(lable_map[action])
+
+np.array(sequences).shape
+np.array(labels).shape
+labels[29]
+
+x=np.array(sequences)
+x.shape
+y=to_categorical(labels).astype(int)
+y
+
+np.array(y).shape
+X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.15)
+X_train.shape
+y_test.shape
+
+
+
+
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
+from tensorflow.keras.callbacks import TensorBoard
+
+log_dir = os.path.join('Logs')
+tb_callback = TensorBoard(log_dir=log_dir)
+
+model = Sequential()
+model.add(LSTM(64, return_sequences=True, activation='relu', input_shape=(30,1662)))
+model.add(LSTM(128, return_sequences=True, activation='relu'))
+model.add(LSTM(64, return_sequences=False, activation='relu'))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(32, activation='relu'))
+model.add(Dense(actions.shape[0], activation='softmax'))
+
+model.compile(optimizer='Adam', loss='categorical_crossentropy', metrics=['categorical_accuracy'])
+
+model.fit(X_train, y_train, epochs=2000, callbacks=[tb_callback])
+
+res=[.2,.7,.1]
+actions[np.argmax(res)]
+actions[np.argmax(res[4])]
+
+model.save('action.h5')
+
+from keras.models import load_model
+
+model_new=load_model(r"C:\Users\user\Desktop\highaccuracymodel.h5")
+
+from sklearn.metrics import multilabel_confusion_matrix, accuracy_score
+
+yhat = model_new.predict(X_test)
+ytrue = np.argmax(y_test, axis=1).tolist()
+yhat = np.argmax(yhat, axis=1).tolist()
+multilabel_confusion_matrix(ytrue, yhat)
+accuracy_score(ytrue, yhat)
+
+
+sequence = [] # we need 30 frame of data to actually predict
+sentence = []
+predictions = []
+threshold = 0.5
+
+cap = cv2.VideoCapture(0)
+# Set mediapipe model 
+with mp_holistic.Holistic(min_detection_confidence=0.3, min_tracking_confidence=0.5) as holistic:
+    while cap.isOpened():
+
+        # Read feed
+        ret, frame = cap.read()
+
+        # Make detections
+        image, results = mediapipe_detection(frame, holistic)
+        print(results)
+        
+        # Draw landmarks
+        draw_styled_landmarks(image, results)
+        
+        # 2. Prediction logic in order 
+        keypoints = exract_keypoints(results)
+        sequence.append(keypoints)
+        sequence = sequence[-30:]
+        
+        if len(sequence) == 30:
+            res = model_new.predict(np.expand_dims(sequence, axis=0))[0]
+            print(actions[np.argmax(res)])
+            cv2.putText(image,actions[np.argmax(res)] , (3,30), 
+                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+            
+        
+        # Show to screen
+        cv2.imshow('OpenCV Feed', image)
+
+        # Break gracefully
+        if cv2.waitKey(10) & 0xFF == ord('q'):
+            break
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+
